@@ -23,7 +23,7 @@ const val CLIPBOARD_CLEAR_DELAY_MS = 5 * 1000L // 5 seconds
 const val DEFAULT_DELAY_MS = 1 * 60 * 1000L
 const val DEFAULT_VISIBLE_MS = 60 * 1000L
 const val EXTEND_MS = 5 * 60 * 1000L
-
+const val HARD_LOCK_MS = 60 * 60 * 1000L // 1 hour
 enum class Screen { LIST, SETTINGS }
 class MainActivity : ComponentActivity() {
 
@@ -186,9 +186,19 @@ fun SecretListScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         when (info.state) {
+                            RevealState.HARD_LOCKED -> {
+                                val remainingMs = info.hardLockUntilElapsedMs - android.os.SystemClock.elapsedRealtime()
+                                Text("Locked — unavailable for ${formatDuration(remainingMs)}")
+                            }
                             RevealState.LOCKED -> {
-                                Button(onClick = { timer.startCountdown() }) {
-                                    Text("Reveal")
+                                Row {
+                                    Button(onClick = { timer.startCountdown() }) {
+                                        Text("Reveal")
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    OutlinedButton(onClick = { timer.hardLock(HARD_LOCK_MS) }) {
+                                        Text("Lock 1h")
+                                    }
                                 }
                             }
                             RevealState.COUNTING_DOWN -> {
@@ -202,6 +212,10 @@ fun SecretListScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     OutlinedButton(onClick = { timer.extendCountdown(EXTEND_MS) }) {
                                         Text("+5 min")
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    OutlinedButton(onClick = { timer.hardLock(HARD_LOCK_MS) }) {
+                                        Text("Lock 1h")
                                     }
                                 }
                             }
@@ -223,6 +237,10 @@ fun SecretListScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     OutlinedButton(onClick = { timer.closeEarly() }) {
                                         Text("Close")
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    OutlinedButton(onClick = { timer.hardLock(HARD_LOCK_MS) }) {
+                                        Text("Lock 1h")
                                     }
                                 }
                             }

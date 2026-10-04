@@ -11,7 +11,10 @@ data class TimerRecord(
     val hideAtElapsedMs: Long,
     val revealAtWallClockMs: Long,
     val hideAtWallClockMs: Long,
-    val bootReferenceMs: Long // wallClockAtSave - elapsedAtSave, used to detect reboots
+    val bootReferenceMs: Long,
+    val hardLockUntilElapsedMs: Long = 0L,
+    val hardLockUntilWallClockMs: Long = 0L,
+    val hardLockBootReferenceMs: Long = 0L
 )
 
 class TimerStore(context: Context) {
@@ -37,7 +40,10 @@ class TimerStore(context: Context) {
             hideAtElapsedMs = obj.getLong("hideAtElapsedMs"),
             revealAtWallClockMs = obj.getLong("revealAtWallClockMs"),
             hideAtWallClockMs = obj.getLong("hideAtWallClockMs"),
-            bootReferenceMs = obj.getLong("bootReferenceMs")
+            bootReferenceMs = obj.getLong("bootReferenceMs"),
+            hardLockUntilElapsedMs = obj.optLong("hardLockUntilElapsedMs", 0L),
+            hardLockUntilWallClockMs = obj.optLong("hardLockUntilWallClockMs", 0L),
+            hardLockBootReferenceMs = obj.optLong("hardLockBootReferenceMs", 0L)
         )
     }
 
@@ -49,9 +55,11 @@ class TimerStore(context: Context) {
         obj.put("revealAtWallClockMs", record.revealAtWallClockMs)
         obj.put("hideAtWallClockMs", record.hideAtWallClockMs)
         obj.put("bootReferenceMs", record.bootReferenceMs)
+        obj.put("hardLockUntilElapsedMs", record.hardLockUntilElapsedMs)
+        obj.put("hardLockUntilWallClockMs", record.hardLockUntilWallClockMs)
+        obj.put("hardLockBootReferenceMs", record.hardLockBootReferenceMs)
         prefs.edit().putString("timer_$secretId", obj.toString()).apply()
     }
-
     fun clear(secretId: String) {
         prefs.edit().remove("timer_$secretId").apply()
     }

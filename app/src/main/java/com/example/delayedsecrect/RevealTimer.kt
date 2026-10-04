@@ -2,12 +2,13 @@ package com.example.delayedsecrect
 
 import android.os.SystemClock
 
-enum class RevealState { LOCKED, COUNTING_DOWN, REVEALED }
+enum class RevealState { LOCKED, COUNTING_DOWN, REVEALED, HARD_LOCKED }
 
 data class TimerInfo(
     val state: RevealState,
     val revealAtElapsedMs: Long = 0L,
-    val hideAtElapsedMs: Long = 0L
+    val hideAtElapsedMs: Long = 0L,
+    val hardLockUntilElapsedMs: Long = 0L
 )
 
 class RevealTimer(
@@ -22,27 +23,38 @@ class RevealTimer(
     private var revealAtWallClockMs = 0L
     private var hideAtWallClockMs = 0L
 
+    private var hardLockUntilElapsedMs = 0L
+    private var hardLockUntilWallClockMs = 0L
+    private var hardLockBootReferenceMs = 0L
+
     init {
         reconcileFromDisk()
     }
 
     private fun reconcileFromDisk() {
         val record = store.get(secretId) ?: return
-        if (!record.started) return
 
         val nowElapsed = SystemClock.elapsedRealtime()
         val nowWallClock = System.currentTimeMillis()
         val currentBootReference = nowWallClock - nowElapsed
 
-        val rebooted = kotlin.math.abs(currentBootReference - record.bootReferenceMs) > 3000 // 3s tolerance
+        // Reconcile the hard lock first, independently of the reveal timer
+        if (record.hardLockUntilElapsedMs != 0L) {
+            val rebooted = kotlin.math.abs(currentBootReference - record.hardLockBootReferenceMs) > 3000
+            hardLockUntilElapsedMs = if (!rebooted) record.hardLockUntilElapsedMs
+            else nowElapsed + (record.hardLockUntilWallClockMs - nowWallClock)
+            hardLockUntilWallClockMs = record.hardLockUntilWallClockMs
+            hardLockBootReferenceMs = record.hardLockBootReferenceMs
+        }
+
+        if (!record.started) return
+        val rebooted = kotlin.math.abs(currentBootReference - record.bootReferenceMs) > 3000
 
         started = true
         if (!rebooted) {
-            // Same boot session -> trust the tamper-proof elapsed values directly
             revealAtElapsedMs = record.revealAtElapsedMs
             hideAtElapsedMs = record.hideAtElapsedMs
         } else {
-            // Reboot happened -> recompute elapsed targets from the wall-clock backup
             revealAtElapsedMs = nowElapsed + (record.revealAtWallClockMs - nowWallClock)
             hideAtElapsedMs = if (record.hideAtElapsedMs == 0L) 0L
             else nowElapsed + (record.hideAtWallClockMs - nowWallClock)
@@ -62,12 +74,49 @@ class RevealTimer(
                 hideAtElapsedMs = hideAtElapsedMs,
                 revealAtWallClockMs = revealAtWallClockMs,
                 hideAtWallClockMs = hideAtWallClockMs,
-                bootReferenceMs = nowWallClock - nowElapsed
+                bootReferenceMs = nowWallClock - nowElapsed,
+                hardLockUntilElapsedMs = hardLockUntilElapsedMs,
+                hardLockUntilWallClockMs = hardLockUntilWallClockMs,
+                hardLockBootReferenceMs = hardLockBootReferenceMs
             )
         )
     }
 
+    private fun isHardLockedNow(): Boolean {
+        if (hardLockUntilElapsedMs == 0L) return false
+        if (SystemClock.elapsedRealtime() >= hardLockUntilElapsedMs) {
+            // expired naturally -> clear it
+            hardLockUntilElapsedMs = 0L
+            hardLockUntilWallClockMs = 0L
+            hardLockBootReferenceMs = 0L
+            persist()
+            return false
+        }
+        return true
+    }
+
+    /** Locks this one secret for the given duration, no matter what state it's
+     *  currently in. Overrides/cancels any active countdown or open reveal.
+     *  There is deliberately NO function anywhere that undoes this early. */
+    fun hardLock(durationMs: Long) {
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWallClock = System.currentTimeMillis()
+
+        // Forcibly cancel any in-progress countdown/reveal
+        started = false
+        revealAtElapsedMs = 0L
+        hideAtElapsedMs = 0L
+        revealAtWallClockMs = 0L
+        hideAtWallClockMs = 0L
+
+        hardLockUntilElapsedMs = nowElapsed + durationMs
+        hardLockUntilWallClockMs = nowWallClock + durationMs
+        hardLockBootReferenceMs = nowWallClock - nowElapsed
+        persist()
+    }
+
     fun startCountdown() {
+        if (isHardLockedNow()) return // hard lock blocks everything
         val nowElapsed = SystemClock.elapsedRealtime()
         val nowWallClock = System.currentTimeMillis()
         revealAtElapsedMs = nowElapsed + delayMillis
@@ -78,21 +127,22 @@ class RevealTimer(
         persist()
     }
 
-    /** Only valid while counting down. Pushes the reveal time further out.
-     *  One-way only — there is no function that pulls it back in. */
-    fun extendCountdown(extraMillis: Long) {
-        if (!started || hideAtElapsedMs != 0L) return // ignore if not actively counting down
-        revealAtElapsedMs += extraMillis
-        revealAtWallClockMs += extraMillis
-        persist()
-    }
-
     fun cancel() {
+        if (isHardLockedNow()) return
         reset()
     }
 
     fun closeEarly() {
+        if (isHardLockedNow()) return
         reset()
+    }
+
+    fun extendCountdown(extraMillis: Long) {
+        if (isHardLockedNow()) return
+        if (!started || hideAtElapsedMs != 0L) return
+        revealAtElapsedMs += extraMillis
+        revealAtWallClockMs += extraMillis
+        persist()
     }
 
     private fun reset() {
@@ -101,10 +151,14 @@ class RevealTimer(
         hideAtElapsedMs = 0L
         revealAtWallClockMs = 0L
         hideAtWallClockMs = 0L
-        store.clear(secretId)
+        persist()
     }
 
     fun currentState(): TimerInfo {
+        if (isHardLockedNow()) {
+            return TimerInfo(RevealState.HARD_LOCKED, hardLockUntilElapsedMs = hardLockUntilElapsedMs)
+        }
+
         if (!started) return TimerInfo(RevealState.LOCKED)
 
         val nowElapsed = SystemClock.elapsedRealtime()
