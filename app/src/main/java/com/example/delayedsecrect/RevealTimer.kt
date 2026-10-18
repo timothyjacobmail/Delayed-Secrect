@@ -2,6 +2,7 @@ package com.example.delayedsecrect
 
 import android.os.SystemClock
 
+const val CLAIM_WINDOW_MS = 15 * 60 * 1000L // unclaimed reveals expire 15 min after the countdown ends
 enum class RevealState { LOCKED, COUNTING_DOWN, REVEALED, HARD_LOCKED }
 
 data class TimerInfo(
@@ -167,12 +168,17 @@ class RevealTimer(
             return TimerInfo(RevealState.COUNTING_DOWN, revealAtElapsedMs, 0L)
         }
 
-        if (hideAtElapsedMs == 0L && nowElapsed >= revealAtElapsedMs) {
+        if (hideAtElapsedMs == 0L) {
+            // Countdown is over but the reveal hasn't been claimed yet.
+            // If the claim window has passed, the secret expires back to locked.
+            if (nowElapsed >= revealAtElapsedMs + CLAIM_WINDOW_MS) {
+                reset()
+                return TimerInfo(RevealState.LOCKED)
+            }
             hideAtElapsedMs = nowElapsed + visibleMillis
             hideAtWallClockMs = System.currentTimeMillis() + visibleMillis
             persist()
         }
-
         if (nowElapsed < hideAtElapsedMs) {
             return TimerInfo(RevealState.REVEALED, revealAtElapsedMs, hideAtElapsedMs)
         }
