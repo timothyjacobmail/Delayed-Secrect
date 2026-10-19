@@ -70,6 +70,7 @@ fun SecretListScreen(
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var secretPendingDelete by remember { mutableStateOf<Secret?>(null) }
+    var secretEditingDelay by remember { mutableStateOf<Secret?>(null) }
     var secrets by remember { mutableStateOf(secretStore.getAll()) }
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -105,6 +106,7 @@ fun SecretListScreen(
     LaunchedEffect(tick) {
         overlayGranted = hasOverlayPermission(context)
         settingsStore.reconcilePending()
+        secrets = secretStore.getAll()
         delayMs = settingsStore.getDelayMinutes() * 60_000L
         visibleMs = settingsStore.getVisibleSeconds() * 1000L
     }
@@ -116,6 +118,7 @@ fun SecretListScreen(
             TopAppBar(
                 title = { Text("Delayed Secret") },
                 actions = {
+                    ImportSecretListButton(secretStore, settingsStore) { secrets = secretStore.getAll() }
                     IconButton(onClick = onOpenSettings) {
                         Icon(androidx.compose.material.icons.Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -190,6 +193,19 @@ fun SecretListScreen(
                             "Delay: $effectiveDelayMin min" + if (secret.delayMinutes == null) " (default)" else "",
                             style = MaterialTheme.typography.bodySmall
                         )
+                        TextButton(onClick = { secretEditingDelay = secret }) {
+                            Text("Change delay")
+                        }
+                        secret.pendingDelay?.let { pending ->
+                            val target = pending.delayMinutes?.let { "$it min" } ?: "default delay"
+                            Text("Pending: $target")
+                            val remaining = pending.effectiveAtElapsedMs - android.os.SystemClock.elapsedRealtime()
+                            Text("Applies in ${formatDuration(remaining)}", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = {
+                                secretStore.cancelPendingDelay(secret.id)
+                                secrets = secretStore.getAll()
+                            }) { Text("Cancel delay change") }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
 
                         when (info.state) {
@@ -258,6 +274,20 @@ fun SecretListScreen(
         }
     }}
 
+    secretEditingDelay?.let { secret ->
+        EditSecretDelayDialog(
+            secret = secret,
+            defaultMinutes = (delayMs / 60_000L).toInt(),
+            onDismiss = { secretEditingDelay = null },
+            onSave = { minutes ->
+                settingsStore.reconcilePending()
+                secretStore.requestDelayChange(secret.id, minutes, settingsStore.getDelayMinutes())
+                secrets = secretStore.getAll()
+                secretEditingDelay = null
+            }
+        )
+    }
+
     if (showAddDialog) {
         AddSecretDialog(
             onDismiss = { showAddDialog = false },
@@ -301,6 +331,45 @@ fun formatDuration(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return if (minutes > 0) "%d:%02d".format(minutes, seconds) else "${seconds}s"
+}
+
+@Composable
+fun EditSecretDelayDialog(
+    secret: Secret,
+    defaultMinutes: Int,
+    onDismiss: () -> Unit,
+    onSave: (Int?) -> Unit
+) {
+    var delayText by remember(secret.id) {
+        mutableStateOf((if (secret.pendingDelay != null) secret.pendingDelay.delayMinutes else secret.delayMinutes)?.toString() ?: "")
+    }
+    val valid = delayText.isBlank() || (delayText.toIntOrNull()?.let { it >= 1 } == true)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Change delay for ${secret.name}") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = delayText,
+                    onValueChange = { delayText = it.filter { c -> c.isDigit() } },
+                    label = { Text("Delay in minutes") },
+                    singleLine = true,
+                    isError = !valid,
+                    supportingText = {
+                        Text(if (valid) "Leave blank to use the default ($defaultMinutes min)." else "Enter a whole number of at least 1 minute.")
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Increases apply immediately. Decreases take at least 25 minutes after saving. Saving another decrease restarts the wait; restarting the device also restarts it.")
+                Spacer(Modifier.height(8.dp))
+                Text("Changes apply to future reveals. A countdown already running keeps its scheduled unlock time.")
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onSave(delayText.toIntOrNull()) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
