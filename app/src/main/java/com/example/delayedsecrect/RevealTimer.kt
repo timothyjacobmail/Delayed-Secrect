@@ -14,8 +14,8 @@ data class TimerInfo(
 
 class RevealTimer(
     private val secretId: String,
-    private val delayMillis: Long,
-    private val visibleMillis: Long,
+    var delayMillis: Long,
+    var visibleMillis: Long,
     private val store: TimerStore
 ) {
     private var started = false

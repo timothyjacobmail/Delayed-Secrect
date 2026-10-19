@@ -152,6 +152,8 @@ fun SecretListScreen(
             ) {
                 items(secrets, key = { it.id }) { secret ->
                 val timer = timers[secret.id]!!
+                    timer.delayMillis = secret.delayMinutes?.let { it * 60_000L } ?: delayMs
+                    timer.visibleMillis = visibleMs
                 @Suppress("UNUSED_EXPRESSION") tick
                     val previousState = lastKnownState[secret.id]
                     val info = timer.currentState()
@@ -183,6 +185,11 @@ fun SecretListScreen(
                                 Text("Delete")
                             }
                         }
+                        val effectiveDelayMin = secret.delayMinutes ?: (delayMs / 60_000L).toInt()
+                        Text(
+                            "Delay: $effectiveDelayMin min" + if (secret.delayMinutes == null) " (default)" else "",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
 
                         when (info.state) {
@@ -254,8 +261,8 @@ fun SecretListScreen(
     if (showAddDialog) {
         AddSecretDialog(
             onDismiss = { showAddDialog = false },
-            onSave = { name, value ->
-                secretStore.add(name, value)
+            onSave = { name, value, delayMinutes ->
+                secretStore.add(name, value, delayMinutes)
                 secrets = secretStore.getAll()
                 showAddDialog = false
             }
@@ -297,9 +304,10 @@ fun formatDuration(ms: Long): String {
 }
 
 @Composable
-fun AddSecretDialog(onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+fun AddSecretDialog(onDismiss: () -> Unit, onSave: (String, String, Int?) -> Unit) {
     var name by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
+    var delayText by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -309,11 +317,20 @@ fun AddSecretDialog(onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") })
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(value = value, onValueChange = { value = it }, label = { Text("Secret text") })
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = delayText,
+                    onValueChange = { delayText = it.filter { c -> c.isDigit() } },
+                    label = { Text("Delay in minutes (blank = default)") }
+                )
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                if (name.isNotBlank() && value.isNotBlank()) onSave(name, value)
+                if (name.isNotBlank() && value.isNotBlank()) {
+                    val delay = delayText.toIntOrNull()?.coerceAtLeast(1)
+                    onSave(name, value, delay)
+                }
             }) { Text("Save") }
         },
         dismissButton = {

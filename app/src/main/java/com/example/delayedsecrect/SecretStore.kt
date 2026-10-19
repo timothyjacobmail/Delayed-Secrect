@@ -9,7 +9,8 @@ import org.json.JSONObject
 data class Secret(
     val id: String,
     val name: String,
-    val value: String
+    val value: String,
+    val delayMinutes: Int? = null // null = use the global delay from Settings
 )
 
 class SecretStore(context: Context) {
@@ -36,16 +37,24 @@ class SecretStore(context: Context) {
                 Secret(
                     id = obj.getString("id"),
                     name = obj.getString("name"),
-                    value = obj.getString("value")
+                    value = obj.getString("value"),
+                    delayMinutes = if (obj.has("delayMinutes")) obj.getInt("delayMinutes") else null
                 )
             )
         }
         return result
     }
 
-    fun add(name: String, value: String) {
+    fun add(name: String, value: String, delayMinutes: Int?) {
         val current = getAll().toMutableList()
-        current.add(Secret(id = System.currentTimeMillis().toString(), name = name, value = value))
+        current.add(
+            Secret(
+                id = System.currentTimeMillis().toString(),
+                name = name,
+                value = value,
+                delayMinutes = delayMinutes
+            )
+        )
         saveAll(current)
     }
 
@@ -61,6 +70,7 @@ class SecretStore(context: Context) {
             obj.put("id", it.id)
             obj.put("name", it.name)
             obj.put("value", it.value)
+            it.delayMinutes?.let { d -> obj.put("delayMinutes", d) }
             array.put(obj)
         }
         prefs.edit().putString("secrets_json", array.toString()).apply()
