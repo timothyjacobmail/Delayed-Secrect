@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -15,8 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import android.content.Intent
 import kotlinx.coroutines.launch
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.res.painterResource
 
 // Defaults per your spec — will become user-configurable in the Settings step
 const val CLIPBOARD_CLEAR_DELAY_MS = 5 * 1000L // 5 seconds
@@ -120,7 +120,7 @@ fun SecretListScreen(
                 actions = {
                     ImportSecretListButton(secretStore, settingsStore) { secrets = secretStore.getAll() }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(androidx.compose.material.icons.Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings")
                     }
                 }
             )
@@ -181,11 +181,19 @@ fun SecretListScreen(
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Text(secret.name, style = MaterialTheme.typography.titleMedium)
-                            TextButton(onClick = { secretPendingDelete = secret }) {
-                                Text("Delete")
+                            Text(
+                                secret.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = { secretPendingDelete = secret },
+                                modifier = Modifier.widthIn(min = 72.dp)
+                            ) {
+                                Text("Delete", maxLines = 1, softWrap = false)
                             }
                         }
                         val effectiveDelayMin = secret.delayMinutes ?: (delayMs / 60_000L).toInt()
